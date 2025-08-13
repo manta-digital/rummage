@@ -1,0 +1,94 @@
+{
+  "name": "rummage",
+  "version": "0.1.0",
+  "description": "",
+  "main": "./out/main/main.mjs",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-builder",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3 -w onnxruntime-node",
+    "test": "vitest",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "ai:dev": "pnpm run dev",
+    "ai:build": "pnpm run build && pnpm run package",
+    "ai:clean": "rm -rf dist node_modules && pnpm install",
+    "ai:test": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "ai:setup": "pnpm install && pnpm run typecheck"
+  },
+  "keywords": [
+    "electron",
+    "ai",
+    "photos",
+    "file-manager",
+    "local-first"
+  ],
+  "author": "Erik Corkran",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.14.0",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@typescript-eslint/eslint-plugin": "^8.39.1",
+    "@typescript-eslint/parser": "^8.39.1",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@electron/rebuild": "^3.7.0",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "eslint": "^9.33.0",
+    "eslint-plugin-react": "^7.37.5",
+    "tailwindcss": "^4.1.11",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.2",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "chokidar": "^4.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "fast-glob": "^3.3.3",
+    "lodash-es": "^4.17.21",
+    "lucide-react": "^0.539.0",
+    "onnxruntime-node": "1.22.0-rev",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "sqlite-vec": "0.1.7-alpha.2",
+    "tailwind-merge": "^3.3.1"
+  },
+  "build": {
+    "appId": "com.rummage.app",
+    "files": [
+      "out/**",
+      "resources/**"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "out/main/**/*.node",
+      "node_modules/{better-sqlite3,sqlite-vec,onnxruntime-node}/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}
