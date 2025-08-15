@@ -44,6 +44,8 @@ pnpm --version
 ### Install Ollama (Optional - for LLM features)
 ```bash
 # macOS
+# If you already have ollama installed and running, the easiest way is just to
+# right-click it's 
 brew install ollama
 
 # Linux

@@ -22,7 +22,7 @@ function createWindow(): void {
       preload: fileURLToPath(new URL('../preload/preload.mjs', import.meta.url)),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: !process.env.ELECTRON_RENDERER_URL
     }
   })
 
@@ -67,6 +67,19 @@ app.whenReady().then(() => {
   const dbPath = getDatabasePath(app.getPath('userData'))
   initializeDatabase(dbPath)
   createWindow()
+  // Tight CSP in production
+  if (!process.env.ELECTRON_RENDERER_URL) {
+    const { session } = require('electron') as typeof import('electron')
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';"
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [csp]
+        }
+      })
+    })
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
