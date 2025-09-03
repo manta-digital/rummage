@@ -9,8 +9,12 @@
     "preview": "electron-vite preview",
     "package": "electron-builder",
     "postinstall": "electron-builder install-app-deps",
-    "rebuild:native": "electron-rebuild -f -w better-sqlite3 -w onnxruntime-node",
-    "test": "vitest",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3,onnxruntime-node",
+    "test": "pnpm run test:main && pnpm run test:renderer",
+    "test:main": "vitest --config vitest.config.main.ts",
+    "test:renderer": "vitest --config vitest.config.renderer.ts",
+    "test:coverage": "pnpm run test -- --coverage",
+    "test:ui": "vitest --ui",
     "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
     "typecheck": "tsc --noEmit",
     "ai:dev": "pnpm run dev",
@@ -30,7 +34,11 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.14.0",
   "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
     "@tailwindcss/vite": "^4.1.11",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^24.2.1",
     "@types/react": "^19.1.10",
@@ -38,12 +46,12 @@
     "@typescript-eslint/eslint-plugin": "^8.39.1",
     "@typescript-eslint/parser": "^8.39.1",
     "@vitejs/plugin-react": "^5.0.0",
-    "@electron/rebuild": "^3.7.0",
     "electron": "^37.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
     "eslint": "^9.33.0",
     "eslint-plugin-react": "^7.37.5",
+    "jsdom": "^26.1.0",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.9.2",
     "vite": "^7.1.2",
@@ -76,7 +84,9 @@
       "node_modules/{better-sqlite3,sqlite-vec,onnxruntime-node}/**/*"
     ],
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"

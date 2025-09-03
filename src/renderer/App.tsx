@@ -1,9 +1,20 @@
 import React from 'react'
 import './globals.css'
 
+import type { RummageApi } from '../electron/preload/api'
+
 declare global {
   interface Window {
-    app: { ping: () => Promise<string>; db: { getSchemaVersion: () => Promise<string | null>; setMeta: (k: string, v: string) => Promise<boolean> } }
+    // Legacy API (for backward compatibility)
+    app: { 
+      ping: () => Promise<string>
+      db: { 
+        getSchemaVersion: () => Promise<string | null>
+        setMeta: (k: string, v: string) => Promise<boolean> 
+      } 
+    }
+    // New structured API
+    rummage: RummageApi
   }
 }
 

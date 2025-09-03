@@ -9,13 +9,15 @@ export default defineConfig({
     build: {
       outDir: 'out/main',
       rollupOptions: {
+        input: resolve(__dirname, 'src/electron/main/main.ts'),
         external: ['better-sqlite3', 'sqlite-vec', 'onnxruntime-node'],
         output: { format: 'es' }
       }
     },
     resolve: {
       alias: {
-        '@main': resolve(__dirname, 'src/main')
+        '@core': resolve(__dirname, 'src/core'),
+        '@electron': resolve(__dirname, 'src/electron')
       }
     }
   },
@@ -24,12 +26,14 @@ export default defineConfig({
     build: {
       outDir: 'out/preload',
       rollupOptions: {
+        input: resolve(__dirname, 'src/electron/preload/preload.ts'),
         output: { format: 'es' }
       }
     },
     resolve: {
       alias: {
-        '@preload': resolve(__dirname, 'src/preload')
+        '@core': resolve(__dirname, 'src/core'),
+        '@electron': resolve(__dirname, 'src/electron')
       }
     }
   },

@@ -1,0 +1,13 @@
+{
+  "name": "test-config",
+  "version": "1.0.0",
+  "settings": {
+    "debug": true,
+    "maxFiles": 1000,
+    "extensions": [".ts", ".js", ".json", ".md", ".txt"]
+  },
+  "metadata": {
+    "created": "2024-01-01",
+    "author": "Test Suite"
+  }
+}
