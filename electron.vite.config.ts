@@ -2,6 +2,8 @@ import { defineConfig, externalizeDepsPlugin, defineViteConfig } from 'electron-
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { viteContentPlugin } from './lib/vite/vite-plugin-content'
 
 export default defineConfig({
   main: {
@@ -9,15 +11,13 @@ export default defineConfig({
     build: {
       outDir: 'out/main',
       rollupOptions: {
-        input: resolve(__dirname, 'src/electron/main/main.ts'),
         external: ['better-sqlite3', 'sqlite-vec', 'onnxruntime-node'],
         output: { format: 'es' }
       }
     },
     resolve: {
       alias: {
-        '@core': resolve(__dirname, 'src/core'),
-        '@electron': resolve(__dirname, 'src/electron')
+        '@main': resolve(__dirname, 'src/main')
       }
     }
   },
@@ -26,14 +26,12 @@ export default defineConfig({
     build: {
       outDir: 'out/preload',
       rollupOptions: {
-        input: resolve(__dirname, 'src/electron/preload/preload.ts'),
         output: { format: 'es' }
       }
     },
     resolve: {
       alias: {
-        '@core': resolve(__dirname, 'src/core'),
-        '@electron': resolve(__dirname, 'src/electron')
+        '@preload': resolve(__dirname, 'src/preload')
       }
     }
   },
@@ -42,16 +40,30 @@ export default defineConfig({
     build: {
       outDir: 'out/renderer',
       rollupOptions: {
-        input: { index: resolve(__dirname, 'index.html') }
+        input: { index: resolve(__dirname, 'index.html') },
+        output: {
+          manualChunks: {
+            'ui-core': ['./src/lib/ui-core']
+          }
+        }
       }
     },
     resolve: {
       alias: {
-        '@renderer': resolve(__dirname, 'src/renderer')
+        '@renderer': resolve(__dirname, 'src/renderer'),
+        '@manta-templates/content': fileURLToPath(
+          new URL('./content', import.meta.url)
+        ),
+        '@/lib': resolve(__dirname, 'lib')
       }
     },
-    plugins: [react(), tailwindcss()]
+    plugins: [
+      react(), 
+      tailwindcss(),
+      viteContentPlugin({
+        sanitize: true,
+        contentAlias: '@manta-templates/content'
+      })
+    ]
   }))
 })
-
-
