@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { viteContentPlugin } from './lib/vite/vite-plugin-content'
+import { viteContentPlugin } from './src/lib/vite/vite-plugin-content'
 
 export default defineConfig({
   main: {
@@ -54,7 +54,7 @@ export default defineConfig({
         '@manta-templates/content': fileURLToPath(
           new URL('./content', import.meta.url)
         ),
-        '@/lib': resolve(__dirname, 'lib')
+        '@/lib': resolve(__dirname, 'src/lib')
       }
     },
     plugins: [

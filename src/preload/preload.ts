@@ -1,10 +1,11 @@
 import { contextBridge } from 'electron'
-import { rummageApi } from './api'
+import { rummageApi, electronAPI } from './api'
 
-// Expose the API to the renderer process
-contextBridge.exposeInMainWorld('rummage', rummageApi)
+// Expose the formal ElectronAPI to the renderer process (main interface)
+contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
 // Legacy API for backward compatibility (can be removed after migration)
+contextBridge.exposeInMainWorld('rummage', rummageApi)
 contextBridge.exposeInMainWorld('app', {
   ping: rummageApi.ping,
   db: {

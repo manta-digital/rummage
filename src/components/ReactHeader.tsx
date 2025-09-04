@@ -1,6 +1,5 @@
-import React from 'react';
-import { Header } from '../lib/ui-core';
-import { HeaderProps } from '../lib/ui-core/types/header';
+import { Header } from "../lib/ui-core";
+import { HeaderProps } from "../lib/ui-core/types/header";
 
 /**
  * React-specific wrapper for Header component that adapts React Router Link
