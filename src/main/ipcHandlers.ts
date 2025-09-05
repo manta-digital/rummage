@@ -1,12 +1,21 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog, BrowserWindow } from 'electron'
 import type { RummageApp } from './RummageApp'
-import { IPC_CHANNELS } from '../shared/constants/ipc-channels'
+import { IPC_CHANNELS, IPC_EVENT_CHANNELS } from '../shared/constants/ipc-channels'
+import type { ScanDirectoryRequest } from '../shared/types/ipc'
+
+// Global state for scan operations
+let currentScans = new Map<number, AbortController>()
+let scanIdCounter = 0
+let mainWindow: BrowserWindow | null = null
 
 /**
  * Sets up IPC handlers for communication between main and renderer processes
  * Uses formal channel constants and provides secure access to core services
  */
-export function setupIpcHandlers(app: RummageApp): void {
+export function setupIpcHandlers(app: RummageApp, window?: BrowserWindow): void {
+  if (window) {
+    mainWindow = window
+  }
   // Basic connectivity test
   ipcMain.handle(IPC_CHANNELS.PING, () => 'pong')
 
@@ -24,6 +33,138 @@ export function setupIpcHandlers(app: RummageApp): void {
 
   ipcMain.handle(IPC_CHANNELS.HAS_VECTOR_SUPPORT, () => {
     return app.hasVectorSupport()
+  })
+
+  // CRITICAL: File system operations (core app functionality)
+  ipcMain.handle(IPC_CHANNELS.SELECT_DIRECTORY, async () => {
+    if (!mainWindow) {
+      throw new Error('Main window not available')
+    }
+
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Select Directory to Scan',
+        buttonLabel: 'Select Directory'
+      })
+
+      if (result.canceled || !result.filePaths.length) {
+        return null
+      }
+
+      return result.filePaths[0]
+    } catch (error) {
+      console.error('Directory selection failed:', error)
+      throw new Error('Failed to open directory selector')
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SCAN_DIRECTORY, async (_event, request: ScanDirectoryRequest) => {
+    if (!request || !request.path) {
+      throw new Error('Invalid scan request')
+    }
+
+    const scanId = ++scanIdCounter
+    const abortController = new AbortController()
+    currentScans.set(scanId, abortController)
+
+    try {
+      console.log(`🔍 Starting scan ${scanId} for: ${request.path}`)
+
+      // Send scan started event
+      if (mainWindow) {
+        mainWindow.webContents.send(IPC_EVENT_CHANNELS.SCAN_STARTED, {
+          directory: request.path,
+          scanId
+        })
+      }
+
+      const startTime = Date.now()
+      const fileSystemService = app.getFileSystemService()
+
+      // Start directory scan with progress callback
+      const files = await fileSystemService.scanDirectory(
+        request.path,
+        (current: number, total: number, currentFile: string) => {
+          if (abortController.signal.aborted) {
+            throw new Error('Scan cancelled by user')
+          }
+
+          // Send progress updates (throttled)
+          if (mainWindow && (current % 10 === 0 || current === total)) {
+            mainWindow.webContents.send(IPC_EVENT_CHANNELS.SCAN_PROGRESS, {
+              scanId,
+              current,
+              total,
+              currentFile
+            })
+          }
+        },
+        abortController.signal
+      )
+
+      // Store files in database
+      const fileIds = await app.getFileRepository().batchInsert(files)
+      const duration = Date.now() - startTime
+
+      console.log(`✅ Scan ${scanId} completed: ${files.length} files in ${duration}ms`)
+
+      // Send completion event
+      if (mainWindow) {
+        mainWindow.webContents.send(IPC_EVENT_CHANNELS.SCAN_COMPLETED, {
+          scanId,
+          filesFound: files.length,
+          duration
+        })
+      }
+
+      return {
+        success: true,
+        scanId,
+        filesFound: files.length,
+        duration
+      }
+
+    } catch (error) {
+      console.error(`❌ Scan ${scanId} failed:`, error.message)
+
+      if (error.message.includes('cancelled')) {
+        if (mainWindow) {
+          mainWindow.webContents.send(IPC_EVENT_CHANNELS.SCAN_CANCELLED, { scanId })
+        }
+        return { 
+          success: false, 
+          scanId, 
+          filesFound: 0, 
+          duration: 0, 
+          error: 'Scan cancelled by user' 
+        }
+      } else {
+        if (mainWindow) {
+          mainWindow.webContents.send(IPC_EVENT_CHANNELS.SCAN_ERROR, {
+            scanId,
+            error: error.message
+          })
+        }
+        throw error
+      }
+    } finally {
+      currentScans.delete(scanId)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.CANCEL_SCAN, async () => {
+    const scanCount = currentScans.size
+    console.log(`⏹️ Cancelling ${scanCount} active scans`)
+
+    for (const [scanId, controller] of currentScans) {
+      controller.abort()
+      if (mainWindow) {
+        mainWindow.webContents.send(IPC_EVENT_CHANNELS.SCAN_CANCELLED, { scanId })
+      }
+    }
+    
+    currentScans.clear()
   })
 
   // File operations
@@ -117,32 +258,26 @@ export function setupIpcHandlers(app: RummageApp): void {
 }
 
 /**
- * Clean up IPC handlers
+ * Clean up IPC handlers and cancel active operations
  */
 export function cleanupIpcHandlers(): void {
-  ipcMain.removeAllListeners('ping')
-  ipcMain.removeAllListeners('db:getSchemaVersion')
-  ipcMain.removeAllListeners('db:setMeta')
-  ipcMain.removeAllListeners('db:hasVectorSupport')
+  console.log('🧹 Cleaning up IPC handlers and active operations')
   
-  // File handlers
-  const fileChannels = [
-    'files:findById', 'files:findByPath', 'files:search', 'files:getAllFiles',
-    'files:insert', 'files:update', 'files:delete', 'files:batchInsert'
-  ]
-  fileChannels.forEach(channel => ipcMain.removeAllListeners(channel))
-
-  // Scan history handlers
-  const scanChannels = [
-    'scanHistory:create', 'scanHistory:update', 
-    'scanHistory:findByDirectory', 'scanHistory:getRecent'
-  ]
-  scanChannels.forEach(channel => ipcMain.removeAllListeners(channel))
-
-  // Vector handlers
-  const vectorChannels = [
-    'vector:addTextEmbedding', 'vector:addImageEmbedding',
-    'vector:searchSimilar', 'vector:removeEmbeddings'
-  ]
-  vectorChannels.forEach(channel => ipcMain.removeAllListeners(channel))
+  // Cancel all active scans
+  const scanCount = currentScans.size
+  if (scanCount > 0) {
+    console.log(`⏹️ Cancelling ${scanCount} active scans during cleanup`)
+    for (const [scanId, controller] of currentScans) {
+      controller.abort()
+    }
+    currentScans.clear()
+  }
+  
+  // Remove all IPC listeners
+  Object.values(IPC_CHANNELS).forEach(channel => {
+    ipcMain.removeAllListeners(channel)
+  })
+  
+  // Reset state
+  mainWindow = null
 }

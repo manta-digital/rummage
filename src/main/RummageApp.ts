@@ -4,6 +4,7 @@ import { DatabaseService } from '../core/services/DatabaseService'
 import { FileRepository } from '../core/repositories/FileRepository'
 import { ScanHistoryRepository } from '../core/repositories/ScanHistoryRepository'
 import { VectorStore } from '../core/repositories/VectorStore'
+import { FileSystemService } from './services/FileSystemService'
 import type { DatabaseConfig } from '../core/types'
 
 /**
@@ -15,6 +16,7 @@ export class RummageApp {
   private fileRepository?: FileRepository
   private scanHistoryRepository?: ScanHistoryRepository
   private vectorStore?: VectorStore
+  private fileSystemService?: FileSystemService
 
   constructor(config?: DatabaseConfig) {
     this.databaseService = new DatabaseService(config)
@@ -31,6 +33,9 @@ export class RummageApp {
     this.fileRepository = new FileRepository(db)
     this.scanHistoryRepository = new ScanHistoryRepository(db)
     this.vectorStore = new VectorStore(db, this.databaseService.hasVectorSupport())
+    
+    // Initialize file system service
+    this.fileSystemService = new FileSystemService()
   }
 
   async shutdown(): Promise<void> {
@@ -63,9 +68,16 @@ export class RummageApp {
     return this.vectorStore
   }
 
+  getFileSystemService(): FileSystemService {
+    if (!this.fileSystemService) {
+      throw new Error('Application not initialized')
+    }
+    return this.fileSystemService
+  }
+
   // Helper methods for common operations
   async isReady(): Promise<boolean> {
-    return this.fileRepository !== undefined
+    return this.fileRepository !== undefined && this.fileSystemService !== undefined
   }
 
   hasVectorSupport(): boolean {

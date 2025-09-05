@@ -6,6 +6,7 @@ import { setupIpcHandlers, cleanupIpcHandlers } from './ipcHandlers'
 
 // Global app instance
 let rummageApp: RummageApp
+let mainWindow: BrowserWindow | null = null
 
 function isAllowedUrl(target: string): boolean {
   try {
@@ -16,7 +17,7 @@ function isAllowedUrl(target: string): boolean {
   }
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -49,6 +50,8 @@ function createWindow(): void {
   } else {
     win.loadFile(fileURLToPath(new URL('../../index.html', import.meta.url)))
   }
+
+  return win
 }
 
 app.whenReady().then(async () => {
@@ -58,10 +61,11 @@ app.whenReady().then(async () => {
   rummageApp = new RummageApp()
   await rummageApp.initialize()
   
-  // Set up IPC handlers
-  setupIpcHandlers(rummageApp)
+  // Create main window
+  mainWindow = createWindow()
   
-  createWindow()
+  // Set up IPC handlers with window reference
+  setupIpcHandlers(rummageApp, mainWindow)
   
   // Tight CSP in production
   if (!process.env.ELECTRON_RENDERER_URL) {

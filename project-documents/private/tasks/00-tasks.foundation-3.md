@@ -33,935 +33,449 @@ The foundation slice establishes the core infrastructure for the Rummage applica
 - > 80% test coverage achieved
 - Cross-platform compatibility (Windows, macOS, Linux)
 
-### Day 4: File System Service Implementation
+## Granular Tasks
 
-#### Create Directory Scanning Service
+### Day 3: IPC Architecture Implementation (continued)
 
-- [ ] Install file system dependencies
+- [ ] Write security validation tests
 
-  - [ ] Install required packages for file operations
-    1. Run:
-       ```bash
-       npm install mime-types @types/mime-types
-       npm install exifr  # For EXIF data extraction
-       npm install xxhash-wasm blake3-wasm  # For hashing
-       ```
-  - [ ] Verify all packages installed successfully
-  - [ ] Success: File system dependencies installed
+  - [ ] Create `src/tests/security/preload-security.test.ts`
 
-- [ ] Create file system service class
-
-  - [ ] Create `src/main/services/FileSystemService.ts` file
-
-    1. Implement basic service structure:
+    1. Test context isolation:
 
        ```typescript
-       import * as fs from "fs/promises";
-       import * as path from "path";
+       describe("Preload Security", () => {
+         test("should not expose Node.js globals to renderer", async () => {
+           // Mock renderer environment
+           const rendererGlobals = Object.keys(global);
+           const dangerousGlobals = [
+             "process",
+             "Buffer",
+             "global",
+             "__dirname",
+             "__filename",
+           ];
 
-       export class FileSystemService {
-         async scanDirectory(dirPath: string): Promise<FileInfo[]> {
-           const files: FileInfo[] = [];
-           await this.walkDirectory(dirPath, files);
-           return files;
+           dangerousGlobals.forEach((dangerousGlobal) => {
+             expect(rendererGlobals).not.toContain(dangerousGlobal);
+           });
+         });
+
+         test("should validate all IPC method inputs", async () => {
+           // Test input validation for each exposed method
+           expect(() => electronAPI.scanDirectory("")).toThrow(
+             "Invalid directory path"
+           );
+           expect(() => electronAPI.searchFiles(null)).toThrow(
+             "Invalid search criteria"
+           );
+         });
+       });
+       ```
+
+  - [ ] Test that sensitive APIs are not exposed
+  - [ ] Success: Security tests pass and verify proper isolation
+
+#### Create IPC Service Handlers in Main Process
+
+- [ ] Create centralized IPC service class
+
+  - [ ] Create `src/main/services/IpcService.ts` file
+
+    1. Implement IPC service structure:
+
+       ```typescript
+       import { ipcMain, dialog, BrowserWindow } from "electron";
+       import { IPC_CHANNELS } from "../../shared/constants/ipc-channels";
+       import { DatabaseService } from "./DatabaseService";
+       import { FileSystemService } from "./FileSystemService";
+       import { RepositoryService } from "./RepositoryService";
+
+       export class IpcService {
+         private currentScans = new Map<number, AbortController>();
+         private scanIdCounter = 0;
+
+         constructor(
+           private databaseService: DatabaseService,
+           private fileSystemService: FileSystemService,
+           private repositoryService: RepositoryService,
+           private mainWindow: BrowserWindow
+         ) {
+           this.registerHandlers();
          }
 
-         private async *walkDirectory(dirPath: string): AsyncGenerator<string> {
-           // Implement recursive directory walking
+         private registerHandlers(): void {
+           // File system handlers
+           ipcMain.handle(
+             IPC_CHANNELS.SELECT_DIRECTORY,
+             this.handleSelectDirectory.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.SCAN_DIRECTORY,
+             this.handleScanDirectory.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.CANCEL_SCAN,
+             this.handleCancelScan.bind(this)
+           );
+
+           // Database handlers
+           ipcMain.handle(
+             IPC_CHANNELS.SEARCH_FILES,
+             this.handleSearchFiles.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.GET_FILE_METADATA,
+             this.handleGetFileMetadata.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.GET_SCAN_HISTORY,
+             this.handleGetScanHistory.bind(this)
+           );
+
+           // Vector search handlers
+           ipcMain.handle(
+             IPC_CHANNELS.SEARCH_SIMILAR_IMAGES,
+             this.handleSearchSimilarImages.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.SEARCH_SIMILAR_TEXT,
+             this.handleSearchSimilarText.bind(this)
+           );
+
+           // Application handlers
+           ipcMain.handle(
+             IPC_CHANNELS.GET_APP_VERSION,
+             this.handleGetAppVersion.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.MINIMIZE_WINDOW,
+             this.handleMinimizeWindow.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.MAXIMIZE_WINDOW,
+             this.handleMaximizeWindow.bind(this)
+           );
+           ipcMain.handle(
+             IPC_CHANNELS.CLOSE_WINDOW,
+             this.handleCloseWindow.bind(this)
+           );
          }
        }
        ```
 
-  - [ ] Add error handling for file system operations
-  - [ ] Success: FileSystemService class created
+  - [ ] Add proper error handling and logging
+  - [ ] Success: IPC service class structure created
 
-- [ ] Implement recursive directory traversal
+- [ ] Implement file system operation handlers
 
-  - [ ] Add async generator for directory walking
+  - [ ] Add directory selection handler
 
-    1. Implement recursive traversal:
+    1. Implement directory selection:
 
        ```typescript
-       private async *walkDirectory(dirPath: string): AsyncGenerator<string> {
+       private async handleSelectDirectory(): Promise<string | null> {
          try {
-           const entries = await fs.readdir(dirPath, { withFileTypes: true })
+           const result = await dialog.showOpenDialog(this.mainWindow, {
+             properties: ['openDirectory'],
+             title: 'Select Directory to Scan'
+           })
 
-           for (const entry of entries) {
-             const fullPath = path.join(dirPath, entry.name)
-
-             if (entry.isDirectory() && !this.shouldSkipDirectory(entry.name)) {
-               yield* this.walkDirectory(fullPath)
-             } else if (entry.isFile() && !this.shouldSkipFile(entry.name)) {
-               yield fullPath
-             }
+           if (result.canceled || !result.filePaths.length) {
+             return null
            }
+
+           return result.filePaths[0]
          } catch (error) {
-           console.warn(`Cannot read directory ${dirPath}:`, error.message)
+           console.error('Error selecting directory:', error)
+           throw new Error('Failed to open directory selector')
          }
        }
        ```
 
-  - [ ] Add file filtering logic
-  - [ ] Success: Recursive directory traversal implemented
+  - [ ] Add directory scanning handler with progress events
 
-- [ ] Implement file filtering and exclusion rules
-
-  - [ ] Add directory skip logic
-    1. Implement skip rules:
-       ```typescript
-       private shouldSkipDirectory(name: string): boolean {
-         const skipPatterns = [
-           '.git', '.svn', '.hg',  // Version control
-           'node_modules', '.npm', // Package managers
-           '.DS_Store', 'Thumbs.db', // System files
-           '__pycache__', '.pytest_cache' // Python cache
-         ]
-         return skipPatterns.some(pattern => name.includes(pattern))
-       }
-       ```
-  - [ ] Add file skip logic
-    1. Implement file skip rules:
-       ```typescript
-       private shouldSkipFile(name: string): boolean {
-         return name.startsWith('.') || name.startsWith('~')
-       }
-       ```
-  - [ ] Success: File filtering and exclusion rules working
-
-- [ ] Add progress reporting during scan
-
-  - [ ] Implement progress callback system
-
-    1. Add progress reporting:
+    1. Implement directory scanning with progress:
 
        ```typescript
-       async scanDirectory(
-         dirPath: string,
-         onProgress?: (current: number, total: number, file: string) => void
-       ): Promise<FileInfo[]> {
-         const files: string[] = []
+       private async handleScanDirectory(event: Electron.IpcMainInvokeEvent, request: ScanDirectoryRequest): Promise<ScanResult> {
+         const scanId = ++this.scanIdCounter
+         const abortController = new AbortController()
+         this.currentScans.set(scanId, abortController)
 
-         // First pass: collect all file paths
-         for await (const filePath of this.walkDirectory(dirPath)) {
-           files.push(filePath)
-         }
-
-         // Second pass: process with progress reporting
-         const results: FileInfo[] = []
-         for (let i = 0; i < files.length; i++) {
-           onProgress?.(i + 1, files.length, files[i])
-           const info = await this.getFileInfo(files[i])
-           results.push(info)
-         }
-
-         return results
-       }
-       ```
-
-  - [ ] Implement batch progress updates to avoid UI flooding
-  - [ ] Success: Progress reporting during scan implemented
-
-#### Extract Comprehensive File Metadata
-
-- [ ] Implement basic file metadata extraction
-
-  - [ ] Add file stats extraction
-
-    1. Implement basic metadata:
-
-       ```typescript
-       private async getFileInfo(filePath: string): Promise<FileInfo> {
          try {
-           const stats = await fs.stat(filePath)
-           const mimeType = mime.lookup(filePath) || 'application/octet-stream'
+           // Emit scan started event
+           this.mainWindow.webContents.send('scan:started', {
+             directory: request.path,
+             scanId
+           })
+
+           const startTime = Date.now()
+           let filesProcessed = 0
+
+           // Start scan with progress callback
+           const files = await this.fileSystemService.scanDirectory(
+             request.path,
+             (current, total, currentFile) => {
+               if (abortController.signal.aborted) {
+                 throw new Error('Scan cancelled')
+               }
+
+               // Emit progress event (throttled to avoid UI flooding)
+               if (current % 10 === 0 || current === total) {
+                 this.mainWindow.webContents.send('scan:progress', {
+                   scanId,
+                   current,
+                   total,
+                   currentFile
+                 })
+               }
+               filesProcessed = current
+             },
+             abortController.signal
+           )
+
+           // Store files in database
+           const fileIds = await this.repositoryService.getFileRepository().batchInsert(files)
+
+           const duration = Date.now() - startTime
+
+           // Emit completion event
+           this.mainWindow.webContents.send('scan:completed', {
+             scanId,
+             filesFound: files.length,
+             duration
+           })
 
            return {
-             path: filePath,
-             name: path.basename(filePath),
-             size: stats.size,
-             mimeType,
-             createdAt: stats.birthtime.getTime(),
-             modifiedAt: stats.mtime.getTime(),
-             metadata: {}
+             success: true,
+             scanId,
+             filesFound: files.length,
+             duration
            }
+
          } catch (error) {
-           console.warn(`Cannot read file ${filePath}:`, error.message)
-           return null
+           console.error('Scan error:', error)
+
+           if (error.message.includes('cancelled')) {
+             this.mainWindow.webContents.send('scan:cancelled', { scanId })
+             return { success: false, scanId, filesFound: 0, duration: 0, error: 'Scan cancelled' }
+           } else {
+             this.mainWindow.webContents.send('scan:error', {
+               scanId,
+               error: error.message
+             })
+             throw error
+           }
+         } finally {
+           this.currentScans.delete(scanId)
          }
        }
        ```
 
-  - [ ] Add MIME type detection
-  - [ ] Success: Basic file metadata extraction working
-
-- [ ] Implement specialized metadata extraction
-
-  - [ ] Add image metadata extraction
-    1. Extract EXIF data from images:
+  - [ ] Add scan cancellation handler
+    1. Implement scan cancellation:
        ```typescript
-       private async extractImageMetadata(filePath: string): Promise<any> {
+       private async handleCancelScan(): Promise<void> {
+         // Cancel all active scans
+         for (const [scanId, controller] of this.currentScans) {
+           controller.abort()
+           this.mainWindow.webContents.send('scan:cancelled', { scanId })
+         }
+         this.currentScans.clear()
+       }
+       ```
+  - [ ] Success: File system handlers implemented with proper progress events
+
+- [ ] Implement database operation handlers
+
+  - [ ] Add file search handler
+
+    1. Implement file search with validation:
+
+       ```typescript
+       private async handleSearchFiles(event: Electron.IpcMainInvokeEvent, criteria: SearchCriteria): Promise<File[]> {
          try {
-           if (this.isImageFile(filePath)) {
-             const exifr = await import('exifr')
-             const data = await exifr.parse(filePath)
-             return {
-               width: data?.ImageWidth,
-               height: data?.ImageHeight,
-               camera: data?.Make,
-               model: data?.Model,
-               dateTime: data?.DateTime
-             }
+           // Validate search criteria
+           if (typeof criteria !== 'object' || criteria === null) {
+             throw new Error('Invalid search criteria')
+           }
+
+           // Apply search with repository
+           const files = await this.repositoryService.getFileRepository().search(criteria)
+
+           return files
+         } catch (error) {
+           console.error('Search error:', error)
+           throw new Error(`Search failed: ${error.message}`)
+         }
+       }
+       ```
+
+  - [ ] Add file metadata retrieval handler
+
+    1. Implement metadata retrieval:
+
+       ```typescript
+       private async handleGetFileMetadata(event: Electron.IpcMainInvokeEvent, fileId: number): Promise<FileMetadata | null> {
+         try {
+           if (typeof fileId !== 'number' || fileId <= 0) {
+             throw new Error('Invalid file ID provided')
+           }
+
+           const file = await this.repositoryService.getFileRepository().findById(fileId)
+
+           if (!file) {
+             return null
+           }
+
+           // Extract detailed metadata if needed
+           const metadata = await this.fileSystemService.getDetailedMetadata(file.path)
+
+           return {
+             ...file,
+             detailedMetadata: metadata
            }
          } catch (error) {
-           console.warn(`Cannot extract image metadata for ${filePath}:`, error.message)
-         }
-         return {}
-       }
-       ```
-  - [ ] Add document metadata extraction (when possible)
-  - [ ] Add audio/video metadata extraction (when possible)
-  - [ ] Success: Specialized metadata extraction implemented
-
-- [ ] Handle metadata extraction errors gracefully
-  - [ ] Add try-catch blocks around all metadata operations
-  - [ ] Log warnings but don't fail the scan
-  - [ ] Return partial metadata when some extraction fails
-  - [ ] Success: Metadata extraction errors handled gracefully
-
-#### Implement File Hash Calculation
-
-- [ ] Set up hash calculation libraries
-
-  - [ ] Configure xxHash3 implementation
-
-    1. Set up xxHash3:
-
-       ```typescript
-       import { xxHash3 } from "xxhash-wasm";
-
-       export class HashCalculator {
-         private xxHash3: any;
-
-         async initialize(): Promise<void> {
-           this.xxHash3 = await xxHash3();
-         }
-
-         calculateXXHash3(data: Buffer): string {
-           return this.xxHash3.hash(data).toString(16);
+           console.error('Metadata retrieval error:', error)
+           throw new Error(`Failed to get file metadata: ${error.message}`)
          }
        }
        ```
 
-  - [ ] Configure BLAKE3 implementation
-  - [ ] Success: Hash calculation libraries configured
+  - [ ] Add scan history handler
+  - [ ] Success: Database handlers implemented with proper validation
 
-- [ ] Implement streaming hash calculation for large files
+- [ ] Implement vector search handlers
 
-  - [ ] Add streaming hash calculation
+  - [ ] Add image similarity search handler
 
-    1. Implement streaming for large files:
-
-       ```typescript
-       private async calculateFileHash(filePath: string): Promise<FileHash> {
-         const stream = fs.createReadStream(filePath, { highWaterMark: 64 * 1024 }) // 64KB chunks
-         const xxHasher = this.xxHash3.create()
-         const blake3Hasher = this.blake3.create()
-
-         for await (const chunk of stream) {
-           xxHasher.update(chunk)
-           blake3Hasher.update(chunk)
-         }
-
-         return {
-           xxh3: xxHasher.digest('hex'),
-           blake3: blake3Hasher.digest('hex')
-         }
-       }
-       ```
-
-  - [ ] Add memory-efficient processing for large files
-  - [ ] Success: Streaming hash calculation implemented
-
-- [ ] Add batch processing to avoid blocking
-
-  - [ ] Implement hash calculation queue
-
-    1. Add batch processing:
+    1. Implement image similarity search:
 
        ```typescript
-       private async processHashBatch(files: string[], batchSize: number = 10): Promise<void> {
-         for (let i = 0; i < files.length; i += batchSize) {
-           const batch = files.slice(i, i + batchSize)
-           await Promise.all(batch.map(file => this.calculateFileHash(file)))
+       private async handleSearchSimilarImages(event: Electron.IpcMainInvokeEvent, embedding: Float32Array, limit: number = 10): Promise<SimilarityResult[]> {
+         try {
+           if (!(embedding instanceof Float32Array)) {
+             throw new Error('Invalid embedding format - must be Float32Array')
+           }
 
-           // Allow event loop to process other tasks
-           await new Promise(resolve => setImmediate(resolve))
+           if (embedding.length !== 512) {
+             throw new Error('Invalid image embedding dimension - expected 512')
+           }
+
+           const results = await this.repositoryService.getVectorStore().searchSimilarImages(embedding, limit)
+
+           // Enrich results with file information
+           const enrichedResults = await Promise.all(
+             results.map(async (result) => {
+               const file = await this.repositoryService.getFileRepository().findById(result.fileId)
+               return {
+                 ...result,
+                 file
+               }
+             })
+           )
+
+           return enrichedResults
+         } catch (error) {
+           console.error('Image similarity search error:', error)
+           throw new Error(`Image similarity search failed: ${error.message}`)
          }
        }
        ```
 
-  - [ ] Add configurable batch sizes
-  - [ ] Success: Batch processing implemented
+  - [ ] Add text similarity search handler
+  - [ ] Success: Vector search handlers implemented
 
-- [ ] Write hash verification and performance tests
-  - [ ] Create hash verification tests with known files
-  - [ ] Benchmark hash calculation performance
-  - [ ] Test with various file sizes
-  - [ ] Success: Hash verification tests pass
+- [ ] Implement application control handlers
 
-### Day 5: Minimal UI Shell Implementation
-
-#### Create React UI Infrastructure
-
-- [x] Install React and UI dependencies
-
-  - [x] Install React and related packages
-    1. Run:
-       ```bash
-       npm install react react-dom @types/react @types/react-dom
-       npm install @radix-ui/react-dialog @radix-ui/react-progress @radix-ui/react-button
-       npm install @testing-library/react @testing-library/jest-dom
-       ```
-  - [x] Verify all packages installed successfully
-  - [x] Success: React UI dependencies installed
-
-- [x] Set up React application structure
-
-  - [x] Create `src/renderer/index.tsx` entry point
-
-    1. Set up React root:
-
-       ```typescript
-       import React from "react";
-       import { createRoot } from "react-dom/client";
-       import { App } from "./components/App";
-
-       const container = document.getElementById("root")!;
-       const root = createRoot(container);
-       root.render(<App />);
-       ```
-
-  - [x] Create basic HTML template
-  - [x] Success: React application structure created
-
-#### Build Application Shell Components
-
-- [x] Create main App component
-
-  - [x] Create `src/renderer/App.tsx` file (exists with basic structure and IPC testing)
-
-    1. Implement main App structure:
-
-       ```typescript
-       import React from "react";
-       import { AppShell } from "./layout/AppShell";
-       import { DirectoryPicker } from "./features/DirectoryPicker";
-
-       export const App: React.FC = () => {
-         return (
-           <AppShell>
-             <DirectoryPicker />
-           </AppShell>
-         );
-       };
-       ```
-
-  - [ ] Add global state management (React Context)
-  - [x] Success: Main App component created
-
-- [ ] Create AppShell layout component
-
-  - [ ] Create `src/renderer/components/layout/AppShell.tsx` file
-
-    1. Implement app shell structure:
-
-       ```typescript
-       import React from "react";
-
-       interface AppShellProps {
-         children: React.ReactNode;
-       }
-
-       export const AppShell: React.FC<AppShellProps> = ({ children }) => {
-         return (
-           <div className="app-shell">
-             <header className="title-bar">
-               <h1>Rummage</h1>
-               <div className="window-controls">
-                 {/* Window control buttons */}
-               </div>
-             </header>
-             <main className="main-content">{children}</main>
-             <footer className="status-bar">Status: Ready</footer>
-           </div>
-         );
-       };
-       ```
-
-  - [ ] Add CSS modules for styling
-  - [ ] Success: AppShell component renders properly
-
-- [ ] Integrate window controls
-
-  - [ ] Add window control functionality
+  - [ ] Add window control handlers
 
     1. Implement window controls:
 
        ```typescript
-       const WindowControls: React.FC = () => {
-         const handleMinimize = () => window.electronAPI?.minimizeWindow?.();
-         const handleMaximize = () => window.electronAPI?.maximizeWindow?.();
-         const handleClose = () => window.electronAPI?.closeWindow?.();
-
-         return (
-           <div className="window-controls">
-             <button onClick={handleMinimize}>−</button>
-             <button onClick={handleMaximize}>□</button>
-             <button onClick={handleClose}>×</button>
-           </div>
-         );
-       };
-       ```
-
-  - [ ] Add IPC methods for window operations
-  - [ ] Success: Window controls integration working
-
-- [ ] Add responsive layout
-
-  - [ ] Implement responsive CSS
-
-    1. Add responsive styles:
-
-       ```css
-       .app-shell {
-         display: grid;
-         grid-template-rows: auto 1fr auto;
-         height: 100vh;
-         min-width: 800px;
+       private async handleMinimizeWindow(): Promise<void> {
+         this.mainWindow.minimize()
        }
 
-       @media (max-width: 1024px) {
-         .main-content {
-           padding: 8px;
+       private async handleMaximizeWindow(): Promise<void> {
+         if (this.mainWindow.isMaximized()) {
+           this.mainWindow.unmaximize()
+         } else {
+           this.mainWindow.maximize()
          }
        }
-       ```
 
-  - [ ] Test with different window sizes
-  - [ ] Success: Responsive layout handles different window sizes
-
-#### Implement Directory Selection Interface
-
-- [ ] Create directory picker component
-
-  - [ ] Create `src/renderer/components/features/DirectoryPicker.tsx` file
-
-    1. Implement directory picker:
-
-       ```typescript
-       import React, { useState } from "react";
-       import { Button } from "@radix-ui/react-button";
-
-       export const DirectoryPicker: React.FC = () => {
-         const [selectedPath, setSelectedPath] = useState<string>("");
-         const [recentPaths, setRecentPaths] = useState<string[]>([]);
-
-         const handleSelectDirectory = async () => {
-           try {
-             const path = await window.electronAPI.selectDirectory();
-             if (path) {
-               setSelectedPath(path);
-               updateRecentPaths(path);
-             }
-           } catch (error) {
-             console.error("Failed to select directory:", error);
-           }
-         };
-
-         return (
-           <div className="directory-picker">
-             <Button onClick={handleSelectDirectory}>
-               Select Directory to Scan
-             </Button>
-             {selectedPath && (
-               <div className="selected-path">Selected: {selectedPath}</div>
-             )}
-           </div>
-         );
-       };
-       ```
-
-  - [ ] Add directory validation
-  - [ ] Success: Directory picker opens native file dialog
-
-- [ ] Implement recent directories feature
-
-  - [ ] Add local storage for recent directories
-    1. Implement recent directories storage:
-       ```typescript
-       const updateRecentPaths = (newPath: string) => {
-         const recent = JSON.parse(
-           localStorage.getItem("recentDirectories") || "[]"
-         );
-         const updated = [
-           newPath,
-           ...recent.filter((p) => p !== newPath),
-         ].slice(0, 5);
-         localStorage.setItem("recentDirectories", JSON.stringify(updated));
-         setRecentPaths(updated);
-       };
-       ```
-  - [ ] Display recent directories list
-  - [ ] Success: Recent directories list maintained
-
-- [ ] Add directory validation and error handling
-  - [ ] Validate directory exists and is accessible
-  - [ ] Show error messages for invalid selections
-  - [ ] Success: Directory validation and error handling implemented
-
-#### Create Progress Display System
-
-- [ ] Create scan progress component
-
-  - [ ] Create `src/renderer/components/features/ScanProgress.tsx` file
-
-    1. Implement progress display:
-
-       ```typescript
-       import React from "react";
-       import { Progress } from "@radix-ui/react-progress";
-
-       interface ScanProgressProps {
-         current: number;
-         total: number;
-         currentFile: string;
-         onCancel: () => void;
+       private async handleCloseWindow(): Promise<void> {
+         this.mainWindow.close()
        }
 
-       export const ScanProgress: React.FC<ScanProgressProps> = ({
-         current,
-         total,
-         currentFile,
-         onCancel,
-       }) => {
-         const percentage = total > 0 ? (current / total) * 100 : 0;
-
-         return (
-           <div className="scan-progress">
-             <h3>Scanning Directory</h3>
-             <Progress value={percentage} max={100} />
-             <div className="progress-stats">
-               Progress: {current}/{total} ({percentage.toFixed(0)}%)
-             </div>
-             <div className="current-file">Current: {currentFile}</div>
-             <Button onClick={onCancel}>Cancel</Button>
-           </div>
-         );
-       };
-       ```
-
-  - [ ] Add file name truncation for long paths
-  - [ ] Success: Progress bar shows scan completion percentage
-
-- [ ] Integrate with IPC progress events
-
-  - [ ] Set up progress event listeners
-
-    1. Implement progress event integration:
-
-       ```typescript
-       useEffect(() => {
-         const handleProgress = (progress: ScanProgress) => {
-           setCurrentProgress(progress);
-         };
-
-         window.electronAPI.onScanProgress(handleProgress);
-
-         return () => {
-           window.electronAPI.removeAllListeners("scan:progress");
-         };
-       }, []);
-       ```
-
-  - [ ] Update UI in real-time during scans
-  - [ ] Success: Scan statistics updated in real-time
-
-- [ ] Implement cancel functionality
-
-  - [ ] Add cancel button with confirmation
-    1. Implement scan cancellation:
-       ```typescript
-       const handleCancel = async () => {
-         const confirmed = window.confirm(
-           "Are you sure you want to cancel the scan?"
-         );
-         if (confirmed) {
-           await window.electronAPI.cancelScan();
-         }
-       };
-       ```
-  - [ ] Handle cleanup when scan is cancelled
-  - [ ] Success: Cancel functionality implemented
-
-- [ ] Write component tests
-  - [ ] Create tests for all UI components
-  - [ ] Test IPC integration with mocks
-  - [ ] Test responsive behavior
-  - [ ] Success: UI components fully tested
-
-### Day 6-7: Integration and Testing
-
-#### Create Comprehensive Integration Tests
-
-- [ ] Set up integration test environment
-
-  - [ ] Create integration test configuration
-
-    1. Add integration test setup:
-
-       ```typescript
-       // src/tests/integration/setup.ts
-       import { app, BrowserWindow } from "electron";
-       import { DatabaseService } from "../../main/services/DatabaseService";
-       import { FileSystemService } from "../../main/services/FileSystemService";
-
-       export class IntegrationTestHarness {
-         private db: DatabaseService;
-         private fs: FileSystemService;
-         private window: BrowserWindow;
-
-         async initialize(): Promise<void> {
-           await app.whenReady();
-           this.window = new BrowserWindow({ show: false });
-           this.db = new DatabaseService();
-           this.fs = new FileSystemService();
-         }
+       private async handleGetAppVersion(): Promise<string> {
+         return process.env.npm_package_version || '0.0.0'
        }
        ```
 
-  - [ ] Create test data fixtures for integration testing
-  - [ ] Success: Integration test environment ready
+  - [ ] Add application info handlers
+  - [ ] Success: Application control handlers working
 
-- [ ] Test complete directory scan workflow
+- [ ] Write comprehensive IPC integration tests
 
-  - [ ] Create `src/tests/integration/foundation.test.ts` file
+  - [ ] Create `src/tests/integration/ipc-flow.test.ts`
 
-    1. Implement end-to-end scan test:
+    1. Test complete IPC communication flow:
 
        ```typescript
-       describe("Directory Scan Workflow", () => {
-         test("should scan directory and persist to database", async () => {
-           const testDir = path.join(__dirname, "../fixtures/sample-files");
+       describe("IPC Integration", () => {
+         let ipcService: IpcService;
+         let mockWindow: BrowserWindow;
 
-           // Start scan operation
-           const result = await testHarness.scanDirectory(testDir);
+         beforeEach(async () => {
+           mockWindow = new BrowserWindow({ show: false });
+           ipcService = new IpcService(
+             mockDatabaseService,
+             mockFileSystemService,
+             mockRepositoryService,
+             mockWindow
+           );
+         });
 
-           // Verify scan completed
-           expect(result.success).toBe(true);
-           expect(result.filesFound).toBeGreaterThan(0);
+         test("should handle directory selection", async () => {
+           const result = await ipcRenderer.invoke(
+             IPC_CHANNELS.SELECT_DIRECTORY
+           );
+           expect(typeof result === "string" || result === null).toBe(true);
+         });
 
-           // Verify database persistence
-           const files = await testHarness.db.getAllFiles();
-           expect(files).toHaveLength(result.filesFound);
+         test("should handle directory scan with progress events", async () => {
+           const progressEvents: any[] = [];
 
-           // Verify file metadata is complete
-           files.forEach((file) => {
-             expect(file.path).toBeDefined();
-             expect(file.name).toBeDefined();
-             expect(file.size).toBeGreaterThan(0);
-             expect(file.mimeType).toBeDefined();
+           ipcRenderer.on("scan:progress", (_, data) => {
+             progressEvents.push(data);
            });
+
+           const scanResult = await ipcRenderer.invoke(
+             IPC_CHANNELS.SCAN_DIRECTORY,
+             {
+               path: "/test/directory",
+             }
+           );
+
+           expect(scanResult.success).toBe(true);
+           expect(progressEvents.length).toBeGreaterThan(0);
+         });
+
+         test("should handle file search operations", async () => {
+           const criteria = { mimeTypes: ["image/jpeg"], limit: 10 };
+           const results = await ipcRenderer.invoke(
+             IPC_CHANNELS.SEARCH_FILES,
+             criteria
+           );
+
+           expect(Array.isArray(results)).toBe(true);
          });
        });
        ```
 
-  - [ ] Test scan with various file types
-  - [ ] Success: Full directory scan workflow tested
-
-- [ ] Test database persistence and retrieval
-
-  - [ ] Verify all file records are created correctly
-
-    1. Add database verification tests:
-
-       ```typescript
-       test("should persist all file metadata correctly", async () => {
-         const testFiles = await testHarness.fs.scanDirectory(testDir);
-
-         for (const file of testFiles) {
-           const dbRecord = await testHarness.db.findByPath(file.path);
-           expect(dbRecord).toBeDefined();
-           expect(dbRecord.name).toBe(file.name);
-           expect(dbRecord.size).toBe(file.size);
-           expect(dbRecord.hash_xxh3).toBeDefined();
-         }
-       });
-       ```
-
-  - [ ] Test vector storage operations
-  - [ ] Success: Database persistence verified
-
-- [ ] Test UI integration during operations
-
-  - [ ] Test progress updates during scan
-
-    1. Add UI integration tests:
-
-       ```typescript
-       test("should emit progress events during scan", async () => {
-         const progressEvents: ScanProgress[] = [];
-
-         testHarness.onScanProgress((progress) => {
-           progressEvents.push(progress);
-         });
-
-         await testHarness.scanDirectory(testDir);
-
-         expect(progressEvents.length).toBeGreaterThan(0);
-         expect(progressEvents[0].current).toBe(1);
-         expect(progressEvents[progressEvents.length - 1].current).toBe(
-           progressEvents[progressEvents.length - 1].total
-         );
-       });
-       ```
-
-  - [ ] Test error scenarios and recovery
-  - [ ] Success: UI updates confirmed during operations
-
-#### Performance Validation and Optimization
-
-- [ ] Create performance test suite
-
-  - [ ] Create large fixture datasets for performance testing
-
-    1. Generate performance test data:
-
-       ```typescript
-       // Create test directory with 10,000 files of various sizes
-       const generatePerformanceTestData = async () => {
-         const testDir = path.join(__dirname, "../fixtures/performance-test");
-         await fs.mkdir(testDir, { recursive: true });
-
-         for (let i = 0; i < 10000; i++) {
-           const fileName = `test-file-${i}.txt`;
-           const content = "x".repeat(Math.floor(Math.random() * 10000));
-           await fs.writeFile(path.join(testDir, fileName), content);
-         }
-       };
-       ```
-
-  - [ ] Add memory usage monitoring utilities
-  - [ ] Success: Performance test suite created
-
-- [ ] Benchmark directory scanning performance
-
-  - [ ] Test scan speed with different directory sizes
-
-    1. Add performance benchmarks:
-
-       ```typescript
-       test("should scan >1000 files per minute", async () => {
-         const startTime = Date.now();
-         const result = await testHarness.scanDirectory(performanceTestDir);
-         const endTime = Date.now();
-
-         const filesPerMinute =
-           (result.filesFound / (endTime - startTime)) * 60000;
-         expect(filesPerMinute).toBeGreaterThan(1000);
-       });
-       ```
-
-  - [ ] Monitor memory usage during large scans
-  - [ ] Success: Scan performance meets requirements
-
-- [ ] Profile database query performance
-
-  - [ ] Benchmark database insert operations
-
-    1. Add database performance tests:
-
-       ```typescript
-       test("should handle batch inserts efficiently", async () => {
-         const files = Array.from({ length: 1000 }, (_, i) =>
-           createTestFile(i)
-         );
-
-         const startTime = Date.now();
-         await testHarness.db.batchInsert(files);
-         const endTime = Date.now();
-
-         expect(endTime - startTime).toBeLessThan(5000); // Under 5 seconds
-       });
-       ```
-
-  - [ ] Test vector search performance
-  - [ ] Success: Database queries perform adequately
-
-- [ ] Optimize any performance bottlenecks
-  - [ ] Profile code execution and identify slow areas
-  - [ ] Implement optimizations for identified bottlenecks
-  - [ ] Success: UI remains responsive during operations
-
-#### Cross-Platform Compatibility Verification
-
-- [ ] Set up multi-platform testing
-
-  - [ ] Create platform-specific test configurations
-    1. Add platform detection:
-       ```typescript
-       const getPlatformSpecificConfig = () => {
-         const platform = process.platform;
-         return {
-           windows: platform === "win32",
-           macos: platform === "darwin",
-           linux: platform === "linux",
-         };
-       };
-       ```
-  - [ ] Set up CI/CD testing for all platforms
-  - [ ] Success: Testing environments set up for all platforms
-
-- [ ] Test application packaging and distribution
-
-  - [ ] Test Electron app packaging on each platform
-    1. Add packaging tests:
-       ```bash
-       # Test packaging commands
-       npm run build:win
-       npm run build:mac
-       npm run build:linux
-       ```
-  - [ ] Verify packaged apps launch correctly
-  - [ ] Success: Application builds and runs on all platforms
-
-- [ ] Verify sqlite-vec cross-platform compatibility
-
-  - [ ] Test vector extension loading on each platform
-    1. Add platform-specific vector tests:
-       ```typescript
-       test("should load sqlite-vec extension on current platform", async () => {
-         const vectorSupport = await testHarness.db.testVectorSupport();
-         expect(vectorSupport).toBe(true);
-       });
-       ```
-  - [ ] Test vector operations on each platform
-  - [ ] Success: sqlite-vec extension works on all platforms
-
-- [ ] Test file path handling across platforms
-  - [ ] Test with Windows, POSIX path separators
-  - [ ] Test with unicode filenames
-  - [ ] Test with long path names
-  - [ ] Success: File path handling works correctly on all platforms
-
-#### Final Integration and Preparation
-
-- [ ] Run complete test suite verification
-
-  - [ ] Execute all unit tests with coverage reporting
-    1. Run comprehensive test suite:
-       ```bash
-       npm run test:coverage
-       npm run test:integration
-       npm run test:performance
-       ```
-  - [ ] Verify >80% test coverage for business logic
-  - [ ] Fix any failing tests
-  - [ ] Success: All TDD checkpoints verified
-
-- [ ] Resolve TypeScript and build issues
-
-  - [ ] Fix all TypeScript compilation errors
-    1. Run TypeScript check:
-       ```bash
-       npx tsc --noEmit
-       ```
-  - [ ] Resolve any build warnings
-  - [ ] Success: No TypeScript errors remaining
-
-- [ ] Document foundation interfaces for next slices
-
-  - [ ] Create API documentation for exported interfaces
-
-    1. Document key interfaces:
-
-       ```typescript
-       // src/shared/types/foundation-exports.ts
-
-       // Database interfaces available to feature slices
-       export { FileRepository, VectorStore } from "./repositories";
-
-       // IPC interfaces available to feature slices
-       export { IpcApi, IpcEvents } from "./ipc";
-
-       // Service interfaces available to feature slices
-       export { DatabaseService, FileSystemService } from "../main/services";
-       ```
-
-  - [ ] Create integration guide for next slices
-  - [ ] Success: Foundation interfaces documented for next slices
-
-- [ ] Create deployment and packaging scripts
-  - [ ] Add build scripts for all platforms
-    1. Update package.json scripts:
-       ```json
-       {
-         "scripts": {
-           "build": "npm run build:main && npm run build:renderer",
-           "build:main": "tsc -p tsconfig.main.json",
-           "build:renderer": "vite build",
-           "package:all": "electron-builder --win --mac --linux",
-           "package:current": "electron-builder"
-         }
-       }
-       ```
-  - [ ] Test packaging on current platform
-  - [ ] Success: Deployment scripts created and tested
-
-#### Final Verification
-
-- [ ] Confirm slice completion criteria
-  - [ ] Verify Electron app starts and shows minimal UI
-  - [ ] Verify can select and scan a directory
-  - [ ] Verify files are stored in SQLite database with vector capabilities
-  - [ ] Verify bidirectional IPC communication working
-  - [ ] Verify >80% test coverage achieved
-  - [ ] Verify cross-platform compatibility established
-  - [ ] Success: All foundation slice success criteria met
-
-## Dependencies and Blockers
-
-**External Dependencies:**
-
-- sqlite-vec package availability and compatibility
-- Electron version compatibility with chosen libraries
-- Node.js native modules compilation on target platforms
-
-**Potential Blockers:**
-
-- sqlite-vec extension loading failures (mitigation: pure JS fallback)
-- IPC performance issues with large datasets (mitigation: streaming)
-- Cross-platform compilation issues (mitigation: CI/CD testing)
-
-## Validation Criteria
-
-Each task must pass:
-
-1. Unit tests with appropriate coverage
-2. Integration tests for cross-component functionality
-3. TypeScript compilation without errors
-4. Manual testing on primary development platform
-
-Final slice completion requires:
-
-- All TDD checkpoints satisfied
-- Success criteria from slice design met
-- Foundation interfaces ready for feature slice consumption
-- Cross-platform compatibility verified
-
-## Notes for Implementation
-
-- Prioritize TDD approach - write tests before implementation
-- Use dependency injection for better testability
-- Keep business logic separate from Electron-specific code
-- Document any deviations from slice design
-- Consider performance implications of all database operations
+  - [ ] Test error scenarios and edge cases
+  - [ ] Test security boundaries and input validation
+  - [ ] Success: IPC integration tests pass with comprehensive coverage

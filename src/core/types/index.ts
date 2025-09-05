@@ -21,7 +21,29 @@ export interface FileInfo {
   modifiedAt: number
   hashXxh3?: string
   hashBlake3?: string
+  hashMd5?: string  // Added for initial hash support
   metadata: Record<string, any>
+}
+
+// Additional types for file system operations
+export interface FileMetadata extends File {
+  detailedStats?: {
+    mode: number
+    nlink: number
+    uid: number
+    gid: number
+    rdev: number
+    blksize: number
+    ino: number
+    blocks: number
+  }
+  detailedMetadata?: Record<string, any>
+}
+
+export interface ScanProgress {
+  current: number
+  total: number
+  currentFile: string
 }
 
 export interface SearchCriteria {
