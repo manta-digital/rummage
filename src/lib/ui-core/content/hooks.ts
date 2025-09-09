@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import type { ContentEngine, ContentResult, ContentFilters } from './contentTypes';
+import { useState, useEffect, useCallback } from 'react';
+import type { ContentEngine, ContentResult, ContentFilters } from './ContentEngine.js';
 
 export const useContent = <T = Record<string, any>>(
   filename: string, 
@@ -11,7 +11,7 @@ export const useContent = <T = Record<string, any>>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const loadContent = async () => {
+  const loadContent = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -22,11 +22,11 @@ export const useContent = <T = Record<string, any>>(
     } finally {
       setLoading(false);
     }
-  };
+  }, [filename, provider]);
 
   useEffect(() => {
     loadContent();
-  }, [filename, provider]);
+  }, [loadContent]);
 
   return { content, loading, error, refetch: loadContent };
 };

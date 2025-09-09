@@ -1,8 +1,6 @@
 import React from 'react';
 import { cn } from '../../utils/cn';
 import { BaseCard } from './BaseCard';
-import type { AboutContent } from '../../types/content';
-
 // Social icon component types for dependency injection
 interface SocialIcons {
   github: React.ComponentType<any>;
@@ -10,9 +8,17 @@ interface SocialIcons {
   x: React.ComponentType<any>;
   twitter: React.ComponentType<any>;
   mail: React.ComponentType<any>;
+  [key: string]: React.ComponentType<any>; // Allow any platform string
 }
 
-interface AboutCardProps extends Partial<AboutContent> {
+interface AboutCardProps {
+  title?: string;
+  description?: string;
+  avatar?: string;
+  socials?: Array<{
+    platform: string;
+    url: string;
+  }>;
   contentHtml?: string;
   className?: string;
   // Dependency injection props
@@ -71,7 +77,7 @@ export function AboutCard({
             src: avatar,
             alt: title || 'Profile',
             ...(ImageComponent !== 'img' && { width: 80, height: 80 }),
-            className: "w-full h-full object-cover dark:invert",
+            className: "w-full h-full object-cover",
             ...(ImageComponent === 'img' && { style: { width: '80px', height: '80px' } })
           })}
         </div>
